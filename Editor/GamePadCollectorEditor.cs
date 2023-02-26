@@ -2,14 +2,14 @@ using UnityEngine;
 using System.Collections;
 using UnityEditor;
 
-[CustomEditor(typeof(GamePadDataCollector))]
+[CustomEditor(typeof(RewireDataCollector))]
 public class ObjectBuilderEditor : Editor
 {
     public override void OnInspectorGUI()
     {
         DrawDefaultInspector();
 
-        GamePadDataCollector dataCollection = (GamePadDataCollector)target;
+        RewireDataCollector dataCollection = (RewireDataCollector)target;
         if (GUILayout.Button("Start Capture"))
         {
             if (Application.isPlaying)
