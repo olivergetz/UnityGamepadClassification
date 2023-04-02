@@ -15,7 +15,7 @@ public class RewireDataCollector : MonoBehaviour
 
     float sample_rate_seconds;
 
-    string headers = "Timestamp, Left Stick X, LeftStickY, Right Stick X, Right Stick Y, D-Pad Up, D-Pad Right," +
+    string headers = "Timestamp, Left Stick X, Left Stick Y, Right Stick X, Right Stick Y, D-Pad Up, D-Pad Right," +
                         "D-Pad Down, D-Pad Left, Button North, Button East, Button South, Button West, L1, R1, L2, R2, L3, R3," +
                         "Gyroscope X, Gyroscope Y, Gyroscope Z, Accelerometer X, Accelerometer Y, Accelerometer Z," +
                         "Touch 1, Touch 2, Touch 1 Pos X, Touch 1 Pos Y, Touch 2 Pos X, Touch 2 Pos Y";
@@ -95,7 +95,6 @@ public class RewireDataCollector : MonoBehaviour
             touch1PositionY = new float[buffer_size];
             touch2PositionX = new float[buffer_size];
             touch2PositionY = new float[buffer_size];
-
         }
 
     }
@@ -111,7 +110,6 @@ public class RewireDataCollector : MonoBehaviour
     {
         gamepadData = new GamepadData(buffer_size);
         sample_rate_seconds = 1.0f / sample_rate;
-        Debug.Log(sample_rate_seconds);
         filepath = Application.dataPath + "/" + fileName + ".csv";
     }
 
@@ -181,7 +179,6 @@ public class RewireDataCollector : MonoBehaviour
             string percent = (i / (float)buffer_size).ToString("F2");
             Debug.Log("Collecting Data... " + i + "/" + buffer_size + " " + percent + "%");
             gamepadData.timestamp[i] = elapsedTime;
-            gamepadData.leftStickX[i] = player.GetAxis("Move Horizontal");
             gamepadData.leftStickX[i] = player.GetAxis("Move Horizontal");
             gamepadData.leftStickY[i] = player.GetAxis("Move Vertical");
             gamepadData.rightStickX[i] = player.GetAxis("Look Horizontal");
