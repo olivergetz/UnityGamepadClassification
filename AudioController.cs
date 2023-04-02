@@ -26,7 +26,18 @@ public class AudioController : MonoBehaviour
     uint bufferSize = 64; // Greatly affects frame rate, as some calculations are done every frame, so set it as low as feasible.
     float updateInterval = .5f; // In Seconds.
 
-    public AudioClip[] clips;
+    //Prevents a coroutine (and more than one coroutine) from being triggered multiple times before finishing.
+    bool isFading;
+    int prediction;
+
+    public AudioSource[] audioSources;
+
+    [Range(0.1f, 10.0f)] //Min. range must be 0.1f or greater.
+    [SerializeField]
+    private float inDuration = 5.0f;
+    [Range(0.1f, 10.0f)]
+    [SerializeField]
+    private float outDuration = 5.0f;
 
     void Awake()
     {
@@ -43,6 +54,15 @@ public class AudioController : MonoBehaviour
         m_RuntimeModel = ModelLoader.Load(modelAsset);
         worker = WorkerFactory.CreateWorker(WorkerFactory.Type.ComputePrecompiled, m_RuntimeModel);
         StartCoroutine(UpdatePredictions());
+
+        // Audio Setup
+        for (int i = 0; i < audioSources.Length; i++)
+        {
+            audioSources[i].volume = 0.0f;
+            audioSources[i].loop = true;
+            //All the tracks have to be playing from scene start, or they won't sync properly.
+            audioSources[i].Play();
+        }
     }
 
     // Update is called once per frame
@@ -66,6 +86,85 @@ public class AudioController : MonoBehaviour
             controllerDataRMS = RMS(buffers);
         }
 
+        // Music control flow
+        if (!isFading)
+        {
+            switch (prediction)
+            {
+                case 3:
+                    // Activate Layers
+                    if (audioSources[0].volume == 0.0f) StartCoroutine(FadeIn(audioSources[0], 1.0f, inDuration));
+                    if (audioSources[1].volume == 0.0f) StartCoroutine(FadeIn(audioSources[1], 1.0f, inDuration));
+                    if (audioSources[2].volume == 0.0f) StartCoroutine(FadeIn(audioSources[2], 1.0f, inDuration));
+                    break;
+                case 2:
+                    // Activate Layers
+                    if (audioSources[0].volume == 0.0f) StartCoroutine(FadeIn(audioSources[0], 1.0f, inDuration));
+                    if (audioSources[1].volume == 0.0f) StartCoroutine(FadeIn(audioSources[1], 1.0f, inDuration));
+                    // Deactivate Layers
+                    if (audioSources[2].volume != 0.0f) StartCoroutine(FadeOut(audioSources[2], outDuration));
+                    break;
+                case 1:
+                    // Activate Layers
+                    if (audioSources[0].volume == 0.0f) StartCoroutine(FadeIn(audioSources[0], 1.0f, inDuration));
+                    // Deactivate Layers
+                    if (audioSources[2].volume != 0.0f) StartCoroutine(FadeOut(audioSources[2], outDuration));
+                    if (audioSources[1].volume != 0.0f) StartCoroutine(FadeOut(audioSources[1], outDuration));
+                    break;
+                case 0:
+                    // Fade out all music
+                    for (int i = 0; i < audioSources.Length; i++)
+                    {
+                        if (audioSources[i].volume != 0.0f) StartCoroutine(FadeOut(audioSources[i], outDuration));
+                    }
+                    break;
+                default:
+                    // Fade out all music
+                    for (int i = 0; i < audioSources.Length; i++)
+                    {
+                        if (audioSources[i].volume != 0.0f) StartCoroutine(FadeOut(audioSources[i], outDuration));
+                    }
+                    break;
+            }
+        }
+        
+
+    }
+
+    IEnumerator FadeIn(AudioSource source, float finish, float duration)
+    {
+
+        isFading = true;
+
+        for (float t = 0.0f; t < duration; t += Time.deltaTime)
+        {
+            float normalizedTime = t / duration;
+            source.volume = Mathf.Lerp(source.volume, finish, normalizedTime);
+            yield return null;
+        }
+
+        isFading = false;
+        StopCoroutine("FadeIn");
+
+    }
+
+    IEnumerator FadeOut(AudioSource source, float duration)
+    {
+
+        isFading = true;
+
+        for (float t = 0.0f; t < duration; t += Time.deltaTime)
+        {
+            float normalizedTime = t / duration;
+            source.volume = Mathf.Lerp(source.volume, 0.0f, normalizedTime);
+            yield return null;
+        }
+
+        source.volume = 0.0f;
+
+        isFading = false;
+        StopCoroutine("FadeOut");
+
     }
 
     IEnumerator UpdatePredictions()
@@ -88,14 +187,14 @@ public class AudioController : MonoBehaviour
                 " " + predictions[3].ToString("F3") +
                 " Selected: " + Argmax(predictions));
 
-            int pred = Argmax(predictions);
+            // Update the prediction
+            prediction = Argmax(predictions);
 
             modelInput?.Dispose();
 
             yield return new WaitForSecondsRealtime(updateInterval);
         }
     }
-
 
     float RMS(float[] x)
     {
