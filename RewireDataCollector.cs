@@ -10,10 +10,11 @@ public class RewireDataCollector : MonoBehaviour
 {
     public string fileName = "";
     string filepath;
-    public int buffer_size;
-    public int sample_rate;
+    public int bufferSize;
+    public int sampleRate;
+    public int countdownTime;
 
-    float sample_rate_seconds;
+    float sampleRateSeconds;
 
     string headers = "Timestamp, Left Stick X, Left Stick Y, Right Stick X, Right Stick Y, D-Pad Up, D-Pad Right," +
                         "D-Pad Down, D-Pad Left, Button North, Button East, Button South, Button West, L1, R1, L2, R2, L3, R3," +
@@ -62,39 +63,39 @@ public class RewireDataCollector : MonoBehaviour
         public float[] touch2PositionX;
         public float[] touch2PositionY;
 
-        public GamepadData(int buffer_size)
+        public GamepadData(int bufferSize)
         {
-            timestamp = new float[buffer_size];
-            leftStickX = new float[buffer_size];
-            leftStickY = new float[buffer_size];
-            rightStickX = new float[buffer_size];
-            rightStickY = new float[buffer_size];
-            dpadUp = new int[buffer_size];
-            dpadRight = new int[buffer_size];
-            dpadDown = new int[buffer_size];
-            dpadLeft = new int[buffer_size];
-            buttonNorth = new int[buffer_size];
-            buttonEast = new int[buffer_size];
-            buttonSouth = new int[buffer_size];
-            buttonWest = new int[buffer_size];
-            leftShoulder = new int[buffer_size];
-            rightShoulder = new int[buffer_size];
-            leftTrigger = new int[buffer_size];
-            rightTrigger = new int[buffer_size];
-            leftStick = new int[buffer_size];
-            rightStick = new int[buffer_size];
-            gyroscopeX = new float[buffer_size];
-            gyroscopeY = new float[buffer_size];
-            gyroscopeZ = new float[buffer_size];
-            accelerometerX = new float[buffer_size];
-            accelerometerY = new float[buffer_size];
-            accelerometerZ = new float[buffer_size];
-            touch1 = new int[buffer_size]; ;
-            touch2 = new int[buffer_size]; ;
-            touch1PositionX = new float[buffer_size];
-            touch1PositionY = new float[buffer_size];
-            touch2PositionX = new float[buffer_size];
-            touch2PositionY = new float[buffer_size];
+            timestamp = new float[bufferSize];
+            leftStickX = new float[bufferSize];
+            leftStickY = new float[bufferSize];
+            rightStickX = new float[bufferSize];
+            rightStickY = new float[bufferSize];
+            dpadUp = new int[bufferSize];
+            dpadRight = new int[bufferSize];
+            dpadDown = new int[bufferSize];
+            dpadLeft = new int[bufferSize];
+            buttonNorth = new int[bufferSize];
+            buttonEast = new int[bufferSize];
+            buttonSouth = new int[bufferSize];
+            buttonWest = new int[bufferSize];
+            leftShoulder = new int[bufferSize];
+            rightShoulder = new int[bufferSize];
+            leftTrigger = new int[bufferSize];
+            rightTrigger = new int[bufferSize];
+            leftStick = new int[bufferSize];
+            rightStick = new int[bufferSize];
+            gyroscopeX = new float[bufferSize];
+            gyroscopeY = new float[bufferSize];
+            gyroscopeZ = new float[bufferSize];
+            accelerometerX = new float[bufferSize];
+            accelerometerY = new float[bufferSize];
+            accelerometerZ = new float[bufferSize];
+            touch1 = new int[bufferSize]; ;
+            touch2 = new int[bufferSize]; ;
+            touch1PositionX = new float[bufferSize];
+            touch1PositionY = new float[bufferSize];
+            touch2PositionX = new float[bufferSize];
+            touch2PositionY = new float[bufferSize];
         }
 
     }
@@ -108,9 +109,9 @@ public class RewireDataCollector : MonoBehaviour
     }
     private void Start()
     {
-        gamepadData = new GamepadData(buffer_size);
-        sample_rate_seconds = 1.0f / sample_rate;
-        filepath = Application.dataPath + "/" + fileName + ".csv";
+        gamepadData = new GamepadData(bufferSize);
+        sampleRateSeconds = 1.0f / sampleRate;
+        filepath = Application.dataPath + "/Scripts/CollectedData/" + fileName + ".csv";
     }
 
     void Update()
@@ -141,10 +142,10 @@ public class RewireDataCollector : MonoBehaviour
 
             tw = new StreamWriter(filepath, true);
 
-            for (int i = 0; i < buffer_size; i++)
+            for (int i = 0; i < bufferSize; i++)
             {
-                string percent = (i / (float)buffer_size).ToString("F2");
-                Debug.Log("Saving Data... " + i + "/" + buffer_size + " " + percent + "%");
+                string percent = (i / (float)bufferSize).ToString("F2");
+                Debug.Log("Saving Data... " + i + "/" + bufferSize + " " + percent + "%");
                 tw.WriteLine(gamepadData.timestamp[i] + "," + gamepadData.leftStickX[i] + "," + gamepadData.leftStickY[i] + "," + gamepadData.rightStickX[i] + "," + gamepadData.rightStickY[i] + ","
                     + gamepadData.dpadUp[i] + "," + gamepadData.dpadRight[i] + "," + gamepadData.dpadDown[i] + "," + gamepadData.dpadLeft[i] + ","
                     + gamepadData.buttonNorth[i] + "," + gamepadData.buttonEast[i] + "," + gamepadData.buttonSouth[i] + "," + gamepadData.buttonWest[i] + ","
@@ -165,7 +166,6 @@ public class RewireDataCollector : MonoBehaviour
     public IEnumerator StartDataCollection()
     {
         // Count Down
-        int countdownTime = 5;
         for (int i = 0; i < countdownTime; i++)
         {
             Debug.Log("Starting capture in: " + (countdownTime - i));
@@ -174,10 +174,10 @@ public class RewireDataCollector : MonoBehaviour
 
         Debug.Log("Capturing Data");
         float elapsedTime = 0f;
-        for (int i = 0; i < buffer_size; i++)
+        for (int i = 0; i < bufferSize; i++)
         {
-            string percent = (i / (float)buffer_size).ToString("F2");
-            Debug.Log("Collecting Data... " + i + "/" + buffer_size + " " + percent + "%");
+            string percent = (i / (float)bufferSize).ToString("F2");
+            Debug.Log("Collecting Data... " + i + "/" + bufferSize + " " + percent + "%");
             gamepadData.timestamp[i] = elapsedTime;
             gamepadData.leftStickX[i] = player.GetAxis("Move Horizontal");
             gamepadData.leftStickY[i] = player.GetAxis("Move Vertical");
@@ -211,9 +211,9 @@ public class RewireDataCollector : MonoBehaviour
             gamepadData.touch2PositionX[i] = touch1Pos.x;
             gamepadData.touch2PositionY[i] = touch1Pos.y;
 
-            elapsedTime += sample_rate_seconds;
+            elapsedTime += sampleRateSeconds;
 
-            yield return new WaitForSecondsRealtime(sample_rate_seconds);
+            yield return new WaitForSecondsRealtime(sampleRateSeconds);
         }
 
         ToCSV();

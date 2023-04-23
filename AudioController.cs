@@ -5,6 +5,7 @@ using Rewired;
 using Rewired.ControllerExtensions;
 using Unity.Barracuda;
 using System;
+using System.Linq;
 
 public class AudioController : MonoBehaviour
 {
@@ -21,10 +22,20 @@ public class AudioController : MonoBehaviour
     Tensor modelInput;
 
     float[,] buffers;
-    float[] controllerDataRMS;
-    uint inputStreams = 10;
-    uint bufferSize = 64; // Greatly affects frame rate, as some calculations are done every frame, so set it as low as feasible.
-    float updateInterval = .5f; // In Seconds.
+    float[] controllerDataFeats; // All features, interleaved like (a1, a2, a3, b1, b2, b3...)
+    uint inputStreams = 15;
+    int numFeatures = 3;
+
+    // Inlcude or exclude features during testing
+    public bool useMean = false;
+    public bool useVariance = false;
+    public bool useRMS = false;
+    bool[] featuresToUse;
+
+    // BufferSize is used to calculate features like RMS.
+    // Greatly affects frame rate, as some calculations are done every frame, so set it as low as feasible.
+    public uint bufferSize = 256; 
+    public float updateInterval = 1f; // How often to update features, in Seconds.
 
     //Prevents a coroutine (and more than one coroutine) from being triggered multiple times before finishing.
     bool isFading;
@@ -45,7 +56,12 @@ public class AudioController : MonoBehaviour
         Application.runInBackground = true;
 
         buffers = new float[inputStreams, bufferSize];
-        controllerDataRMS = new float[inputStreams];
+        controllerDataFeats = new float[inputStreams*numFeatures];
+
+        // Store feature states as a single array, for counting Trues and interleaving features.
+        featuresToUse = new bool[] { useMean, useVariance, useRMS };
+        // Get number of features in use.
+        numFeatures = featuresToUse.Where(c => c).Count();
     }
 
     // Start is called before the first frame update
@@ -68,51 +84,34 @@ public class AudioController : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        // Continuously update RMS
-        for (uint i = 0; i < bufferSize; i++)
-        {
-            buffers[0, i] = player.GetAxis("Move Horizontal");
-            buffers[1, i] = player.GetAxis("Move Vertical");
-            buffers[2, i] = player.GetAxis("Look Horizontal");
-            buffers[3, i] = player.GetAxis("Look Vertical");
-            buffers[4, i] = dualsense.GetGyroscopeValue().x;
-            buffers[5, i] = dualsense.GetGyroscopeValue().y;
-            buffers[6, i] = dualsense.GetGyroscopeValue().z;
-            buffers[7, i] = dualsense.GetAccelerometerValue().x;
-            buffers[8, i] = dualsense.GetAccelerometerValue().y;
-            buffers[9, i] = dualsense.GetAccelerometerValue().z;
-
-            // Calculate RMS for each buffer
-            controllerDataRMS = RMS(buffers);
-        }
 
         // Music control flow
         if (!isFading)
         {
             switch (prediction)
             {
-                case 3:
-                    // Activate Layers
+                case 0:
+                    // Activate Layers - High Activity
                     if (audioSources[0].volume == 0.0f) StartCoroutine(FadeIn(audioSources[0], 1.0f, inDuration));
                     if (audioSources[1].volume == 0.0f) StartCoroutine(FadeIn(audioSources[1], 1.0f, inDuration));
                     if (audioSources[2].volume == 0.0f) StartCoroutine(FadeIn(audioSources[2], 1.0f, inDuration));
                     break;
-                case 2:
-                    // Activate Layers
+                case 3:
+                    // Activate Layers - Medium Activity
                     if (audioSources[0].volume == 0.0f) StartCoroutine(FadeIn(audioSources[0], 1.0f, inDuration));
                     if (audioSources[1].volume == 0.0f) StartCoroutine(FadeIn(audioSources[1], 1.0f, inDuration));
                     // Deactivate Layers
                     if (audioSources[2].volume != 0.0f) StartCoroutine(FadeOut(audioSources[2], outDuration));
                     break;
-                case 1:
-                    // Activate Layers
+                case 2:
+                    // Activate Layers - Low Activity
                     if (audioSources[0].volume == 0.0f) StartCoroutine(FadeIn(audioSources[0], 1.0f, inDuration));
                     // Deactivate Layers
                     if (audioSources[2].volume != 0.0f) StartCoroutine(FadeOut(audioSources[2], outDuration));
                     if (audioSources[1].volume != 0.0f) StartCoroutine(FadeOut(audioSources[1], outDuration));
                     break;
-                case 0:
-                    // Fade out all music
+                case 1:
+                    // Fade out all music - Idle
                     for (int i = 0; i < audioSources.Length; i++)
                     {
                         if (audioSources[i].volume != 0.0f) StartCoroutine(FadeOut(audioSources[i], outDuration));
@@ -127,8 +126,71 @@ public class AudioController : MonoBehaviour
                     break;
             }
         }
-        
+    }
 
+    void UpdateBuffers()
+    {
+        // Update buffers and calculate features
+        for (uint i = 0; i < bufferSize; i++)
+        {
+            buffers[0, i] = player.GetAxis("Move Horizontal");
+            buffers[1, i] = player.GetAxis("Move Vertical");
+            buffers[2, i] = player.GetAxis("Look Horizontal");
+            buffers[3, i] = player.GetAxis("Look Vertical");
+            buffers[4, i] = Convert.ToInt32(player.GetButton("Button South"));
+            buffers[5, i] = Convert.ToInt32(player.GetButton("Button West"));
+            buffers[6, i] = Convert.ToInt32(player.GetButton("Left Shoulder"));
+            buffers[7, i] = Convert.ToInt32(player.GetButton("Right Shoulder"));
+            buffers[8, i] = Convert.ToInt32(player.GetButton("Right Trigger"));
+            buffers[9, i] = dualsense.GetGyroscopeValue().x;
+            buffers[10, i] = dualsense.GetGyroscopeValue().y;
+            buffers[11, i] = dualsense.GetGyroscopeValue().z;
+            buffers[12, i] = dualsense.GetAccelerometerValue().x;
+            buffers[13, i] = dualsense.GetAccelerometerValue().y;
+            buffers[14, i] = dualsense.GetAccelerometerValue().z;
+        }
+
+        // Calculate Mean, Variance, and/or RMS for each buffer
+        controllerDataFeats = CalculateFeatures(buffers, useMean, useVariance, useRMS);
+    }
+
+    // Use this when there are 3 different features.
+    float[] InterleaveFloats(float[] x, float[] y, float[] z)
+    {
+        float[] interleavedFloats = new float[x.Length * 3];
+        
+        for (uint i = 0; i < x.Length; i++)
+        {
+            for (uint j = 0; j < 3; j++)
+            {
+                // Modulo is used to update only one variable per iteration of j.
+                uint idx = j % 3;
+                if (idx == 0) interleavedFloats[3 * i + idx] = x[i]; // 0, 3, 6, 9
+                if (idx == 1) interleavedFloats[3 * i + idx] = y[i]; // 1, 4, 7, 10
+                if (idx == 2) interleavedFloats[3 * i + idx] = z[i]; // 2, 5, 8, 11
+            }
+        }
+
+        return interleavedFloats;
+    }
+
+    // Use this when there are 2 different features.
+    float[] InterleaveFloats(float[] x, float[] y)
+    {
+        float[] interleavedFloats = new float[x.Length * 3];
+
+        for (uint i = 0; i < x.Length; i++)
+        {
+            for (uint j = 0; j < 2; j++)
+            {
+                // Modulo is used to update only one variable per iteration of j.
+                uint idx = j % 2;
+                if (idx == 0) interleavedFloats[2 * i + idx] = x[i]; // 0, 2, 4, 6
+                if (idx == 1) interleavedFloats[2 * i + idx] = y[i]; // 1, 3, 5, 7
+            }
+        }
+
+        return interleavedFloats;
     }
 
     IEnumerator FadeIn(AudioSource source, float finish, float duration)
@@ -169,31 +231,141 @@ public class AudioController : MonoBehaviour
 
     IEnumerator UpdatePredictions()
     {
-        /* Using a coroutine to be able to choose how often to update predictions */
+        /*
+         * We use a coroutine to control how often to update predictions and buffers.
+         * 
+         * Model input must be a tensor of shape (1, inputStreams*n_features)
+         * If you get this error:
+         * 
+         * AssertionException: Assertion failure. Values are not equal.
+         * Expected: n_expected_input == n_supplied_input
+         *  
+         * Ensure your selected features match the features the model was trained on.
+         */
 
         // Always update predictions
         while (true)
         {
-            // Inference
-            modelInput = new Tensor(new int[2] { 1, (int)inputStreams }, controllerDataRMS);
-            Tensor output = worker.Execute(modelInput).PeekOutput();
+            // We update buffers here to only do so according to our update interval.
+            UpdateBuffers();
 
+            modelInput = new Tensor(new int[2] { 1, (int)(inputStreams*numFeatures) }, controllerDataFeats);
+            Tensor output = worker.Execute(modelInput).PeekOutput();
             float[] predictions = Softmax(output.AsFloats());
 
-            
             Debug.Log("Prediction: " + predictions[0].ToString("F3") + 
                 " " + predictions[1].ToString("F3") +
                 " " + predictions[2].ToString("F3") +
                 " " + predictions[3].ToString("F3") +
-                " Selected: " + Argmax(predictions));
+                " Selected: " + output.ArgMax()[0]);
 
-            // Update the prediction
-            prediction = Argmax(predictions);
+             // Update the prediction
+             prediction = output.ArgMax()[0];
 
             modelInput?.Dispose();
 
             yield return new WaitForSecondsRealtime(updateInterval);
         }
+    }
+
+    // Option to supply mean, so it's not calculated twice.
+    float Variance(float[] x, float mean)
+    {
+        float variance = 0;
+
+        for (var i = 0; i < x.Length; i++)
+        {
+            variance += Mathf.Pow(x[i] - mean, 2.0f);
+        }
+
+        return variance;
+    }
+
+    float Variance(float[] x)
+    {
+        float mean = Mean(x);
+        float variance = 0;
+
+        for (var i = 0; i < x.Length; i++)
+        {
+            variance += Mathf.Pow(x[i] - mean, 2.0f);
+        }
+
+        return variance;
+    }
+
+    // Features must be supplied to the model in the format (Mean, Var, RMS) for each input stream.
+    // If FPS becomes an issue, restructure the data before training the model.
+    float[] CalculateFeatures(float[,] x, bool calculateMean = false, bool calculateVar = false, bool calculateRMS = false)
+    {
+        // I can't find a way to guard against 3 Falses, so I guess I'll just let the program die.
+        // Microsoft says: don't throw exceptions from your own code.
+        bool[] featuresToUse = new bool[] { calculateMean, calculateVar, calculateRMS };
+        int numFeatures = featuresToUse.Where(c => c).Count();
+
+        if (numFeatures == 0)
+        {
+            Debug.LogWarning("No features are selected. Select at least 1.");
+            return new float[0];
+        }
+
+        int inputs = x.GetLength(0);
+        int bufferSize = x.GetLength(1);
+        float[] buffer = new float[inputs];   // The buffer to compute features from.
+        float[] outRMS = new float[inputs];
+        float[] outMean = new float[inputs];
+        float[] outVar = new float[inputs];
+
+        for (int i = 0; i < inputs; i++)
+        {
+            for (int j = 0; j < bufferSize; j++)
+            {
+                // Copy values j from the current buffer i to a new array so the features can be calculated for this set of values.
+                buffer[i] = x[i, j];
+            }
+
+            // Calculate Mean if either Mean or Variance is marked as True.
+            if (featuresToUse[0] || featuresToUse[1]) outMean[i] = Mean(buffer);
+            // Calculate Variance
+            if (featuresToUse[1]) outVar[i] = Variance(buffer, outMean[i]);
+
+            //(outMean[i], outVar[i]) = MeanAndVariance(buffer);
+            // Calculate RMS for the current buffer
+            if (featuresToUse[2]) outRMS[i] = RMS(buffer);
+            
+        }
+
+        // Select features and interleave
+        if (featuresToUse[0])
+        {
+            if (featuresToUse[1])
+            {
+                if (featuresToUse[2]) return InterleaveFloats(outMean, outVar, outRMS);
+                else return InterleaveFloats(outMean, outVar);
+            }
+            else if (featuresToUse[2]) return InterleaveFloats(outMean, outRMS);
+            else return outMean;
+        }
+        else if(featuresToUse[1])
+        {
+            if (featuresToUse[2]) return InterleaveFloats(outVar, outRMS);
+            else return outVar;
+        }
+        else if (featuresToUse[2]) return outRMS;
+
+        return new float[0];
+    }
+
+    float Mean(float[] x)
+    {
+        float sum = 0;
+
+        for (var i = 0; i < x.Length; i++)
+        {
+            sum += x[i];
+        }
+
+        return sum / x.Length;
     }
 
     float RMS(float[] x)
@@ -233,6 +405,7 @@ public class AudioController : MonoBehaviour
         return outRMS;
     }
 
+    // Unused, turns out the model output includes an argmax property.
     int Argmax(float[] x)
     {
         int outmax = 0;
@@ -251,28 +424,24 @@ public class AudioController : MonoBehaviour
         return outmax;
     }
 
-    float[] Softmax(float[] x)
+    float[] Softmax(float[] z)
     {
         // e ^ (x - max(x)) / sum(e^(x - max(x))
 
-        float[] softmaxOut = new float[x.Length];
+        float[] softmaxOut = new float[z.Length];
+        float[] z_exp = new float[z.Length];
 
-        float max = 0;
-        float sum = 0;
+        float sum_z_exp = 0;
 
-        for (var i = 0; i < x.Length; i++)
+        for (var i = 0; i < z.Length; i++)
         {
-            if (x[i] > max)
-            {
-                max = x[i];
-            }
-
-            sum += Mathf.Exp(x[i]);
+            z_exp[i] = Mathf.Exp(z[i]);
+            sum_z_exp += z_exp[i];
         }
 
-        for (int i = 0; i < x.Length; i++)
+        for (int i = 0; i < z.Length; i++)
         {
-            softmaxOut[i] = Mathf.Exp(x[i] - max) / sum;
+            softmaxOut[i] = z_exp[i] / sum_z_exp;
         }
 
         return softmaxOut;
