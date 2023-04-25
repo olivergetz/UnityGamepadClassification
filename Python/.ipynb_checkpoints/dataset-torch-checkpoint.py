@@ -2,7 +2,7 @@
  "cells": [
   {
    "cell_type": "code",
-   "execution_count": 10,
+   "execution_count": 1,
    "id": "404bcd48",
    "metadata": {},
    "outputs": [],
@@ -26,7 +26,7 @@
   },
   {
    "cell_type": "markdown",
-   "id": "50265951",
+   "id": "d7bd776e",
    "metadata": {},
    "source": [
     "## Settings\n",
@@ -37,7 +37,7 @@
   {
    "cell_type": "code",
    "execution_count": 2,
-   "id": "3e58de66",
+   "id": "7281add6",
    "metadata": {},
    "outputs": [],
    "source": [
@@ -49,15 +49,15 @@
     "best_model_paths = \"./models/systematic/\"\n",
     "\n",
     "# The portion of the dataset used for training.\n",
-    "training_size = 0.8\n",
+    "training_size = 0.5\n",
     "# Since the window is what we are using to make the computation, \n",
     "# The buffer in Unity during inference should be the same value.\n",
     "window_length_feature_extraction = 256\n",
-    "# Since RMS is computed constantly in Unity, low hop might be best.\n",
+    "# Since features are computed constantly in Unity, low hop might be best.\n",
     "hop_length_feature_extraction = 16\n",
     "\n",
     "# Select dataset\n",
-    "current_dataset = 0\n",
+    "current_dataset = 4\n",
     "# Name, Sample Rate\n",
     "dataset_info = [\n",
     "    ['Guided', 100], \n",
@@ -83,16 +83,17 @@
     "cols_to_ignore = [\"Timestamp\", \"D-Pad\", \"Touch\", \"L3\", \"R3\", \"L2\",\n",
     "       'Button North', 'Button East',]\n",
     "\n",
-    "# Exclude Mean, Var, or RMS for testing.\n",
+    "# Exclude Mean, Var, or RMS for testing, or leave empty to keep all features.\n",
+    "# Remember to set the appropriate bools in Unity.\n",
     "feats_to_ignore = [\"Var\"]\n",
     "\n",
     "# Model Hyperparameters\n",
-    "epochs = 12\n",
-    "hidden_layers = 1\n",
-    "hidden_dims = 45\n",
-    "dropout = 0.2\n",
-    "learning_rate = 5e-6\n",
-    "max_learning_rate = 5e-4\n",
+    "epochs = 10\n",
+    "hidden_layers = 4\n",
+    "hidden_dims = 32\n",
+    "dropout = 0.7\n",
+    "learning_rate = 5e-8\n",
+    "max_learning_rate = 5e-5\n",
     "gamma=0.9 # Not used for the final model. Used for experiments with other optimizers.\n",
     "use_raw = False; # Want to train on the raw data, or the extracted features?\n",
     "early_stop_patience = 5\n",
@@ -110,7 +111,7 @@
   },
   {
    "cell_type": "markdown",
-   "id": "e1974bf3",
+   "id": "a3f22153",
    "metadata": {},
    "source": [
     "## Setup\n",
@@ -121,7 +122,7 @@
   {
    "cell_type": "code",
    "execution_count": 3,
-   "id": "02b7f8d1",
+   "id": "85872888",
    "metadata": {},
    "outputs": [],
    "source": [
@@ -338,7 +339,7 @@
   },
   {
    "cell_type": "markdown",
-   "id": "e45c5935",
+   "id": "3d8ac09e",
    "metadata": {},
    "source": [
     "## Data Processing\n",
@@ -349,7 +350,7 @@
   {
    "cell_type": "code",
    "execution_count": 5,
-   "id": "cc95472d",
+   "id": "1e362d26",
    "metadata": {},
    "outputs": [
     {
@@ -357,10 +358,10 @@
      "output_type": "stream",
      "text": [
       "Labels order:\n",
-      "Label 0 = High_Activity.csv\n",
-      "Label 1 = Idle.csv\n",
-      "Label 2 = Low_Activity.csv\n",
-      "Label 3 = Medium_Activity.csv\n"
+      "Label 0 = High_Activity_Guided_Long_Hires.csv\n",
+      "Label 1 = Idle_Guided_Long_Hires.csv\n",
+      "Label 2 = Low_Activity_Guided_Long_Hires.csv\n",
+      "Label 3 = Medium_Activity_Guided_Long_Hires.csv\n"
      ]
     }
    ],
@@ -461,15 +462,69 @@
   },
   {
    "cell_type": "markdown",
-   "id": "6af05066",
+   "id": "f0f11ad6",
    "metadata": {},
    "source": [
-    "## Data Split"
+    "## Data Inspection\n",
+    "\n",
+    "This section is used to get a sense of which features may be able to separate the data."
    ]
   },
   {
    "cell_type": "code",
    "execution_count": 7,
+   "id": "48f1abc6",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "'\\nprint(data_features.columns)\\n%matplotlib widget\\n#%matplotlib notebook\\nfrom mpl_toolkits.mplot3d import Axes3D\\n\\nfig = plt.figure()\\nax = fig.add_subplot(111, projection =\"3d\")\\n\\nax.scatter3D(data_features[\\'Accelerometer X Mean\\'], \\n            data_features[\\'Accelerometer Y Mean\\'], \\n            data_features[\\'Accelerometer Z Mean\\'])\\n\\nax.scatter3D(data_features[\\'Accelerometer X Var\\'], \\n            data_features[\\'Accelerometer Y Var\\'], \\n            data_features[\\'Accelerometer Z Var\\'])\\n\\nax.set_xlabel(\\'Axis 1\\')\\nax.set_ylabel(\\'Axis 2\\')\\nax.set_zlabel(\\'Axis 3\\')\\n\\nplt.show()'"
+      ]
+     },
+     "execution_count": 7,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "\"\"\"\n",
+    "print(data_features.columns)\n",
+    "%matplotlib widget\n",
+    "#%matplotlib notebook\n",
+    "from mpl_toolkits.mplot3d import Axes3D\n",
+    "\n",
+    "fig = plt.figure()\n",
+    "ax = fig.add_subplot(111, projection =\"3d\")\n",
+    "\n",
+    "ax.scatter3D(data_features['Accelerometer X Mean'], \n",
+    "            data_features['Accelerometer Y Mean'], \n",
+    "            data_features['Accelerometer Z Mean'])\n",
+    "\n",
+    "ax.scatter3D(data_features['Accelerometer X Var'], \n",
+    "            data_features['Accelerometer Y Var'], \n",
+    "            data_features['Accelerometer Z Var'])\n",
+    "\n",
+    "ax.set_xlabel('Axis 1')\n",
+    "ax.set_ylabel('Axis 2')\n",
+    "ax.set_zlabel('Axis 3')\n",
+    "\n",
+    "plt.show()\"\"\""
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "67819d04",
+   "metadata": {},
+   "source": [
+    "## Data Split\n",
+    "\n",
+    "Converting data to tensors and splitting into train and dev sets."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
    "id": "fad63412",
    "metadata": {},
    "outputs": [],
@@ -500,7 +555,7 @@
   },
   {
    "cell_type": "markdown",
-   "id": "2486ceb3",
+   "id": "c0a918ba",
    "metadata": {},
    "source": [
     "## Training\n",
@@ -510,7 +565,7 @@
   },
   {
    "cell_type": "code",
-   "execution_count": 8,
+   "execution_count": 9,
    "id": "91162eb0",
    "metadata": {},
    "outputs": [
@@ -518,18 +573,13 @@
      "name": "stdout",
      "output_type": "stream",
      "text": [
-      "Epoch: 0\tTrain Loss: 1.1860382556915283 \tValidation Loss: 1.5123190879821777  \tAccuracy: 0.264\n",
-      "Epoch: 1\tTrain Loss: 1.3824793100357056 \tValidation Loss: 1.376694679260254  \tAccuracy: 0.264\n",
-      "Epoch: 2\tTrain Loss: 1.3135279417037964 \tValidation Loss: 1.275032639503479  \tAccuracy: 0.545\n",
-      "Epoch: 3\tTrain Loss: 1.0617064237594604 \tValidation Loss: 1.1583726406097412  \tAccuracy: 0.521\n",
-      "Epoch: 4\tTrain Loss: 0.8709972500801086 \tValidation Loss: 1.0982475280761719  \tAccuracy: 0.622\n",
-      "Epoch: 5\tTrain Loss: 0.8646619319915771 \tValidation Loss: 1.011263370513916  \tAccuracy: 0.649\n",
-      "Epoch: 6\tTrain Loss: 0.42745113372802734 \tValidation Loss: 1.0517157316207886  \tAccuracy: 0.677\n",
-      "Epoch: 7\tTrain Loss: 0.8227748274803162 \tValidation Loss: 1.2356325387954712  \tAccuracy: 0.681\n",
-      "Epoch: 8\tTrain Loss: 0.3327732980251312 \tValidation Loss: 1.2353830337524414  \tAccuracy: 0.681\n",
-      "Epoch: 9\tTrain Loss: 0.7163019180297852 \tValidation Loss: 1.0944883823394775  \tAccuracy: 0.688\n",
-      "Epoch: 10\tTrain Loss: 0.5965615510940552 \tValidation Loss: 1.0518879890441895  \tAccuracy: 0.684\n",
-      "Epoch: 11\tTrain Loss: 0.45400217175483704 \tValidation Loss: 0.9253209233283997  \tAccuracy: 0.670\n"
+      "Epoch: 0\tTrain Loss: 1.606315016746521 \tValidation Loss: 1.5122802257537842  \tAccuracy: 0.260\n",
+      "Epoch: 1\tTrain Loss: 1.2752387523651123 \tValidation Loss: 1.29542875289917  \tAccuracy: 0.305\n",
+      "Epoch: 2\tTrain Loss: 1.2105741500854492 \tValidation Loss: 0.9882233142852783  \tAccuracy: 0.516\n",
+      "Epoch: 3\tTrain Loss: 0.8143421411514282 \tValidation Loss: 0.7227907776832581  \tAccuracy: 0.900\n",
+      "Epoch: 4\tTrain Loss: 0.5146056413650513 \tValidation Loss: 0.600462794303894  \tAccuracy: 0.855\n",
+      "Epoch: 5\tTrain Loss: 1.3490362167358398 \tValidation Loss: 0.5714539885520935  \tAccuracy: 0.912\n",
+      "Epoch: 6\tTrain Loss: 0.700194776058197 \tValidation Loss: 0.5213244557380676  \tAccuracy: 0.931\n"
      ]
     }
    ],
@@ -657,7 +707,7 @@
   {
    "cell_type": "code",
    "execution_count": null,
-   "id": "51db935f",
+   "id": "b88789ad",
    "metadata": {},
    "outputs": [],
    "source": []

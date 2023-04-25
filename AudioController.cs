@@ -9,30 +9,46 @@ using System.Linq;
 
 public class AudioController : MonoBehaviour
 {
+    [Space(10)]
+    [Header("Controller Selection")]
     public int rewiredPlayerId = 0;
 
     private Player player;
 
     DualSenseExtension dualsense;
 
-    public NNModel modelAsset;
-    private Model m_RuntimeModel;
-
-    private IWorker worker;
+    [Space(10)]
+    [Header("Models")]
+    public NNModel[] modelAssets;
+    private Model[] m_RuntimeModels;
+    private IWorker[] workers;
     Tensor modelInput;
+    Tensor[] outputs;
+
+    public enum FusionMethod
+    {
+        MajorityVote,
+        AverageProbabilities
+    }
+
+    public FusionMethod fusionMethod = FusionMethod.AverageProbabilities;
 
     float[,] buffers;
     float[] controllerDataFeats; // All features, interleaved like (a1, a2, a3, b1, b2, b3...)
     uint inputStreams = 15;
     int numFeatures = 3;
 
+    [Space(10)]
+    [Header("Included Features")]
     // Inlcude or exclude features during testing
     public bool useMean = false;
     public bool useVariance = false;
     public bool useRMS = false;
     bool[] featuresToUse;
 
-    // BufferSize is used to calculate features like RMS.
+    [Space(10)]
+    [Header("Inference Settings")]
+        // BufferSize is used to calculate features like RMS.
     // Greatly affects frame rate, as some calculations are done every frame, so set it as low as feasible.
     public uint bufferSize = 256; 
     public float updateInterval = 1f; // How often to update features, in Seconds.
@@ -40,7 +56,10 @@ public class AudioController : MonoBehaviour
     //Prevents a coroutine (and more than one coroutine) from being triggered multiple times before finishing.
     bool isFading;
     int prediction;
+    float avgFraction; // Used to calculate mean repeatedly when doing AverageVote fusion.
 
+    [Space(10)]
+    [Header("Audio")]
     public AudioSource[] audioSources;
 
     [Range(0.1f, 10.0f)] //Min. range must be 0.1f or greater.
@@ -58,6 +77,8 @@ public class AudioController : MonoBehaviour
         buffers = new float[inputStreams, bufferSize];
         controllerDataFeats = new float[inputStreams*numFeatures];
 
+        avgFraction = (1 / modelAssets.Length);
+
         // Store feature states as a single array, for counting Trues and interleaving features.
         featuresToUse = new bool[] { useMean, useVariance, useRMS };
         // Get number of features in use.
@@ -67,9 +88,17 @@ public class AudioController : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        m_RuntimeModel = ModelLoader.Load(modelAsset);
-        worker = WorkerFactory.CreateWorker(WorkerFactory.Type.ComputePrecompiled, m_RuntimeModel);
-        StartCoroutine(UpdatePredictions());
+        // Load models
+        m_RuntimeModels = new Model[modelAssets.Length];
+        workers = new IWorker[modelAssets.Length];
+        outputs = new Tensor[modelAssets.Length];
+
+        // Create workers
+        for (int i = 0; i < m_RuntimeModels.Length; i++)
+        {
+            m_RuntimeModels[i] = ModelLoader.Load(modelAssets[i]);
+            workers[i] = WorkerFactory.CreateWorker(WorkerFactory.Type.ComputePrecompiled, m_RuntimeModels[i]);
+        }
 
         // Audio Setup
         for (int i = 0; i < audioSources.Length; i++)
@@ -79,6 +108,8 @@ public class AudioController : MonoBehaviour
             //All the tracks have to be playing from scene start, or they won't sync properly.
             audioSources[i].Play();
         }
+
+        StartCoroutine(UpdatePredictions());
     }
 
     // Update is called once per frame
@@ -249,18 +280,83 @@ public class AudioController : MonoBehaviour
             // We update buffers here to only do so according to our update interval.
             UpdateBuffers();
 
+            // Convert controller input to tensor
             modelInput = new Tensor(new int[2] { 1, (int)(inputStreams*numFeatures) }, controllerDataFeats);
-            Tensor output = worker.Execute(modelInput).PeekOutput();
-            float[] predictions = Softmax(output.AsFloats());
 
-            Debug.Log("Prediction: " + predictions[0].ToString("F3") + 
-                " " + predictions[1].ToString("F3") +
-                " " + predictions[2].ToString("F3") +
-                " " + predictions[3].ToString("F3") +
-                " Selected: " + output.ArgMax()[0]);
+            // Storage for predictions
+            float[][] predictions = new float[modelAssets.Length][];
 
-             // Update the prediction
-             prediction = output.ArgMax()[0];
+            // Make predictions
+            for (int i = 0; i < workers.Length; i++)
+            {
+                outputs[i] = workers[i].Execute(modelInput).PeekOutput();
+                predictions[i] = Softmax(outputs[i].AsFloats());
+            }
+
+            // Fusion predictions, if any.
+            if (modelAssets.Length == 1)
+            {
+                // Update the prediction
+                prediction = outputs[0].ArgMax()[0];
+
+                Debug.Log("Prediction: " + predictions[0][0].ToString("F3") +
+                " " + predictions[0][1].ToString("F3") +
+                " " + predictions[0][2].ToString("F3") +
+                " " + predictions[0][3].ToString("F3") +
+                " Selected: " + prediction);
+            } 
+            else if (fusionMethod == FusionMethod.MajorityVote)
+            {
+                // Contains the number of votes for each class.
+                int[] votes = new int[predictions[0].Length];
+
+                // Count votes
+                for (int i = 0; i < predictions.Length; i++)
+                {
+                    int vote = outputs[i].ArgMax()[0];
+                    votes[vote] += 1; 
+                }
+
+                // Make decision
+                // Update the prediction
+                prediction = Argmax(votes);
+
+                Debug.Log("Prediction: " + predictions[0][0].ToString("F3") +
+                " " + predictions[0][1].ToString("F3") +
+                " " + predictions[0][2].ToString("F3") +
+                " " + predictions[0][3].ToString("F3") +
+                " Selected: " + prediction);
+
+            }
+            else if (fusionMethod == FusionMethod.AverageProbabilities)
+            {
+                // Container for final predictions, of size n classes.
+                float[] finalPrediction = new float[predictions[0].Length];
+                // For each class - predictions[0].Length should be equal to the number of classes
+                for (int i = 0; i < predictions[0].Length; i++)
+                {
+                    float sum = 0;
+
+                    // Calculate the mean along each element - predictions.Length should be the number of predictions made, i.e. 3 if there are 3 models.
+                    for (int j = 0; j < predictions.Length; j++)
+                    {
+                        // Explained: finalPrediction[currentClass] = predictions[value][currentClass]
+                        
+                        sum += predictions[j][i];
+                        finalPrediction[i] = avgFraction * sum;
+                    }
+                }
+
+                // Update the prediction
+                prediction = Argmax(finalPrediction);
+
+                Debug.Log("Prediction: " + finalPrediction[0].ToString("F3") +
+                " " + finalPrediction[1].ToString("F3") +
+                " " + finalPrediction[2].ToString("F3") +
+                " " + finalPrediction[3].ToString("F3") +
+                " Selected: " + prediction);
+
+            }
 
             modelInput?.Dispose();
 
@@ -405,11 +501,30 @@ public class AudioController : MonoBehaviour
         return outRMS;
     }
 
-    // Unused, turns out the model output includes an argmax property.
+    // Used when doing average probability fusion.
     int Argmax(float[] x)
     {
         int outmax = 0;
         float highestValue = 0;
+
+        // Iterate over input to find the highest number
+        for (int i = 0; i < x.Length; i++)
+        {
+            if (x[i] > highestValue)
+            {
+                outmax = i;
+                highestValue = x[i];
+            }
+        }
+
+        return outmax;
+    }
+
+    // Used when doing average probability fusion.
+    int Argmax(int[] x)
+    {
+        int outmax = 0;
+        int highestValue = 0;
 
         // Iterate over input to find the highest number
         for (int i = 0; i < x.Length; i++)
@@ -462,7 +577,11 @@ public class AudioController : MonoBehaviour
 
     private void OnDestroy()
     {
-        worker?.Dispose();
+        for (int i = 0; i < workers.Length; i++)
+        {
+            workers[i]?.Dispose();
+        }
+        
         modelInput?.Dispose();
     }
 }
