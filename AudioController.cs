@@ -21,7 +21,7 @@ public class AudioController : MonoBehaviour
     [Header("Models")]
     public NNModel[] modelAssets;
     private Model[] m_RuntimeModels;
-    private IWorker[] workers;
+    private IWorker[] m_workers;
     Tensor modelInput;
     Tensor[] outputs;
 
@@ -32,6 +32,8 @@ public class AudioController : MonoBehaviour
     }
 
     public FusionMethod fusionMethod = FusionMethod.AverageProbabilities;
+
+    [Range(0.0f, 2.0f)] public float[] modelImportanceWeights;
 
     float[,] buffers;
     float[] controllerDataFeats; // All features, interleaved like (a1, a2, a3, b1, b2, b3...)
@@ -71,13 +73,21 @@ public class AudioController : MonoBehaviour
 
     void Awake()
     {
+        // Check if we have a different number of weight sliders than models.
+        // We don't check for equality to ignore extra weights without causing an error.
+        if (modelImportanceWeights.Length < modelAssets.Length)
+        {
+            Debug.LogError("The number of model importance weights should equal the number of models.");
+        }
+
+
         ConnectController();
         Application.runInBackground = true;
 
         buffers = new float[inputStreams, bufferSize];
         controllerDataFeats = new float[inputStreams*numFeatures];
 
-        avgFraction = (1 / modelAssets.Length);
+        avgFraction = (1.0f / modelAssets.Length);
 
         // Store feature states as a single array, for counting Trues and interleaving features.
         featuresToUse = new bool[] { useMean, useVariance, useRMS };
@@ -90,14 +100,14 @@ public class AudioController : MonoBehaviour
     {
         // Load models
         m_RuntimeModels = new Model[modelAssets.Length];
-        workers = new IWorker[modelAssets.Length];
+        m_workers = new IWorker[modelAssets.Length];
         outputs = new Tensor[modelAssets.Length];
 
         // Create workers
         for (int i = 0; i < m_RuntimeModels.Length; i++)
         {
             m_RuntimeModels[i] = ModelLoader.Load(modelAssets[i]);
-            workers[i] = WorkerFactory.CreateWorker(WorkerFactory.Type.ComputePrecompiled, m_RuntimeModels[i]);
+            m_workers[i] = WorkerFactory.CreateWorker(WorkerFactory.Type.ComputePrecompiled, m_RuntimeModels[i]);
         }
 
         // Audio Setup
@@ -287,9 +297,9 @@ public class AudioController : MonoBehaviour
             float[][] predictions = new float[modelAssets.Length][];
 
             // Make predictions
-            for (int i = 0; i < workers.Length; i++)
+            for (int i = 0; i < m_workers.Length; i++)
             {
-                outputs[i] = workers[i].Execute(modelInput).PeekOutput();
+                outputs[i] = m_workers[i].Execute(modelInput).PeekOutput();
                 predictions[i] = Softmax(outputs[i].AsFloats());
             }
 
@@ -336,14 +346,14 @@ public class AudioController : MonoBehaviour
                 for (int i = 0; i < predictions[0].Length; i++)
                 {
                     float sum = 0;
-
+                    
                     // Calculate the mean along each element - predictions.Length should be the number of predictions made, i.e. 3 if there are 3 models.
                     for (int j = 0; j < predictions.Length; j++)
                     {
                         // Explained: finalPrediction[currentClass] = predictions[value][currentClass]
                         
-                        sum += predictions[j][i];
-                        finalPrediction[i] = avgFraction * sum;
+                        sum += predictions[j][i] * modelImportanceWeights[j];
+                        finalPrediction[i] = (avgFraction * sum);
                     }
                 }
 
@@ -577,9 +587,9 @@ public class AudioController : MonoBehaviour
 
     private void OnDestroy()
     {
-        for (int i = 0; i < workers.Length; i++)
+        for (int i = 0; i < m_workers.Length; i++)
         {
-            workers[i]?.Dispose();
+            m_workers[i]?.Dispose();
         }
         
         modelInput?.Dispose();
